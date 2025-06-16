@@ -1,149 +1,130 @@
 import streamlit as st
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.llms.bedrock import Bedrock
-from langchain.vectorstores import Pinecone
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain_community.vectorstores import Pinecone as LangchainPinecone
 from PIL import Image
 import os
-import boto3
-import pinecone
 
-pinecone_key = os.environ["PINECONE_API_KEY"]
-pinecone_env = "gcp-starter" 
-index_name = "knowledge-base-eliminatorias" 
+# ========================
+# Configuración de claves
+# ========================
+openai_api_key = os.environ.get("OPENAI_API_KEY")
+pinecone_key = os.environ.get("PINECONE_API_KEY")
+pinecone_env = "us-east-1"
+index_name = "knowledge-base-eliminatorias"
 
-region = 'us-east-1'
-aws_access_key_id = os.environ["ACCESS_KEY"]
-aws_secret_access_key = os.environ["ACCESS_SECRET_KEY"]
+# =====================
+# Configuración de app
+# =====================
+st.set_page_config(page_title="Chatbot usando ChatGPT", page_icon="⚽")
 
-st.set_page_config(page_title = "Chatbot usando Bedrock (Anthropic Claude 2)", page_icon = "⚽")
-
-#Create a Side bar
-with st.sidebar:
-    
-    st.title("Chatbot usando Bedrock (Anthropic - Claude 2)")
-    
-    image = Image.open('conmebol.jpg')
-    st.image(image, caption = 'Conmebol')
-
-    st.markdown(
-        """
-        ### Propósito
-
-        Este chatbot utiliza una base de conocimiento (Pinecone) con información del sitio web de Marca.
-        Usa Langchain para usar Bedrock (Anthropic - Claude 2)
-
-        ### Fuentes 
-
-        - Marca - (https://www.marca.com)
-    """
-    )
-
+# ====================
+# Mensaje de bienvenida
+# ====================
 msg_chatbot = """
-        Soy un chatbot que te ayudará a conocer sobre las eliminatorias sudamericanas: 
-        
-        ### Puedo ayudarte con las siguiente preguntas:
-
-        - ¿Quién es el líder en la tabla de posiciones?
-        - ¿Cuáles son los próximos partidos de Perú?
-        - Bríndame la tabla de posiciones
-        - Y muchas más ..... 
+Soy un chatbot que te ayudará a conocer sobre las eliminatorias sudamericanas: 
+### Puedo ayudarte con las siguientes preguntas:
+- ¿Quién es el líder en la tabla de posiciones?
+- ¿Cuáles son los próximos partidos de Perú?
+- Bríndame la tabla de posiciones
+- Y muchas más...
 """
-#Store the LLM Generated Reponese
-if "messages" not in st.session_state.keys():
-    st.session_state.messages = [{"role": "assistant", "content" : msg_chatbot}]
-    
-# Diplay the chat messages
+
+# ======================
+# Reinicio de historial (antes de dibujar mensajes)
+# ======================
+if st.session_state.get("clear_chat", False):
+    st.session_state.clear_chat = False
+    st.session_state.messages = [{"role": "assistant", "content": msg_chatbot}]
+    st.rerun()
+
+# =========
+# Sidebar
+# =========
+with st.sidebar:
+    st.title("Chatbot usando OpenAI (ChatGPT)")
+    image = Image.open('src/conmebol.jpg')
+    st.image(image, caption='Conmebol')
+    st.markdown("""
+        ### Propósito
+        Este chatbot utiliza una base de conocimiento (Pinecone) con información del sitio web de Marca.
+        Usa Langchain con ChatGPT de OpenAI.
+        ### Fuentes 
+        - Marca - (https://www.marca.com)
+    """)
+
+    if st.button("🧹 Limpiar chat"):
+        st.session_state.clear_chat = True
+        st.rerun()
+
+# =======================
+# Inicializar historial si es necesario
+# =======================
+if "messages" not in st.session_state:
+    st.session_state.messages = [{"role": "assistant", "content": msg_chatbot}]
+
+# =======================
+# Mostrar historial
+# =======================
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# Clear the Chat Messages
-def clear_chat_history():
-    st.session_state.messages = [{"role" : "assistant", "content": msg_chatbot}]
-
-# Create a Function to generate
-def generate_bedrock_pinecone_response(prompt_input):
-    
-    model_version_id = "anthropic.claude-v2"
-    bedrock_client = boto3.client(
-        "bedrock-runtime", 
-        region_name = region,
-        aws_access_key_id = aws_access_key_id,
-        aws_secret_access_key = aws_secret_access_key
-    )
-    
-    llm = Bedrock(
-        model_id = model_version_id, 
-        client = bedrock_client,
-        model_kwargs = {'temperature': 0}
+# ====================
+# Generar respuesta
+# ====================
+def generate_openai_pinecone_response(prompt_input):
+    llm = ChatOpenAI(
+        openai_api_key=openai_api_key,
+        model_name="gpt-3.5-turbo",
+        temperature=0.85
     )
 
-    template = """Responda a la pregunta basada en el siguiente contexto.
-    Si no puedes responder a la pregunta, usa la siguiente respuesta "No lo sé disculpa, puedes buscar en internet."
-
-    Contexto: 
-    {context}.
+    template = """Responde a la pregunta basada en el siguiente contexto.
+    Si no puedes responder, di: "No lo sé, disculpa, puedes buscar en internet."
+    Contexto:
+    {context}
     Pregunta: {question}
-    Respuesta utilizando también emoticones: 
+    Respuesta usando también emoticones:
     """
-    
+
     prompt = PromptTemplate(
-        input_variables = ["context", "question"],
-        template = template
+        input_variables=["context", "question"],
+        template=template
     )
 
-    chain_type_kwargs = {"prompt": prompt}
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
 
-    embeddings = OpenAIEmbeddings()
-    
-    # Connect with Pinecone
-    pinecone.init(
-        api_key = pinecone_key,
-        environment = pinecone_env
-    )
-    
-    text_field = "text"
-    # switch back to normal index for langchain
-    index = pinecone.Index(index_name)
-    vectorstore = Pinecone(
-        index, embeddings.embed_query, text_field
+    vectorstore = LangchainPinecone.from_existing_index(
+        index_name=index_name,
+        embedding=embeddings
     )
 
     qa = RetrievalQA.from_chain_type(
-        llm = llm,
-        chain_type = 'stuff',
-        retriever = vectorstore.as_retriever(),
-        verbose = True,
-        chain_type_kwargs = chain_type_kwargs
+        llm=llm,
+        chain_type='stuff',
+        retriever=vectorstore.as_retriever(),
+        verbose=True,
+        chain_type_kwargs={"prompt": prompt}
     )
 
-    output = qa.run(prompt_input)
+    return qa.run(prompt_input)
 
-    return output
-
-st.sidebar.button('Limpiar historial de chat', on_click = clear_chat_history)
-
+# ====================
+# Interfaz principal
+# ====================
 prompt = st.chat_input("Ingresa tu pregunta")
 if prompt:
-    st.session_state.messages.append({"role": "user", "content":prompt})
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
-# Generar una nueva respuesta si el último mensaje no es de un assistant, sino un user
 if st.session_state.messages[-1]["role"] != "assistant":
     with st.chat_message("assistant"):
-        with st.spinner("Esperando respuesta, dame unos segundos."):
-            
-            response = generate_bedrock_pinecone_response(prompt)
+        with st.spinner("Esperando respuesta..."):
+            response = generate_openai_pinecone_response(prompt)
             placeholder = st.empty()
-            full_response = ''
-            
-            for item in response:
-                full_response += item
-                placeholder.markdown(full_response)
-            placeholder.markdown(full_response)
-
-    message = {"role" : "assistant", "content" : full_response}
-    st.session_state.messages.append(message) #Agrega elemento a la caché de mensajes de chat.
+            placeholder.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
