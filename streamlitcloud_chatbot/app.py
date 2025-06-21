@@ -1,6 +1,5 @@
 import streamlit as st
 from langchain.chat_models import ChatOpenAI
-from PIL import Image
 import os
 
 st.set_page_config(
@@ -17,21 +16,18 @@ with st.sidebar:
         'gpt-4'
     ), key="model")
 
-    image = Image.open('logos.png')
-    st.image(image, caption='OpenAI, Langchain y Streamlit')
+    # Imagen desde URL externa (reemplazo de logos.png)
+    st.image(
+        "https://i.postimg.cc/cHMR4XWF/Captura2.png",
+        caption='OpenAI, Langchain y Streamlit',
+        use_column_width=True
+    )
 
     st.markdown("Integrando OpenAI con Streamlit y Langchain.")
 
     st.sidebar.button('Limpiar historial de chat', on_click=lambda: st.session_state.update(
         messages=[{"role": "assistant", "content": msg_chatbot}]
     ))
-
-
-#def clear_chat_history():
-#    st.session_state.messages = [{"role" : "assistant", "content": msg_chatbot}]
-
-#openai_api_key = st.sidebar.text_input("Ingrese tu API Key de OpenAI y dale Enter para habilitar el chatbot", key = "chatbot_api_key", type = "password")
-#st.sidebar.button('Limpiar historial de chat', on_click = clear_chat_history)
 
 
 # Mensaje de bienvenida
@@ -48,10 +44,8 @@ msg_chatbot = """
         - Lo que desees
 """
 
-
 # Obtener la API Key desde variable de entorno o secrets
 openai_api_key = os.getenv("OPENAI_API_KEY", st.secrets.get("OPENAI_API_KEY", None))
-# openai_api_key = 
 
 if not openai_api_key:
     st.error("❌ No se encontró la API Key. Define OPENAI_API_KEY como variable de entorno o en .streamlit/secrets.toml.")
